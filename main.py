@@ -570,8 +570,13 @@ def check_latest_version():
         # Parse versions for proper comparison
         def parse_version(version_str):
             """Parse version string into tuple for proper comparison"""
+            if not version_str:
+                return None
             try:
-                return tuple(map(int, version_str.split('.')))
+                # Strip build metadata / prerelease suffixes like +eng or -beta
+                match = re.match(r'\d+(?:\.\d+)*', version_str)
+                numeric_part = match.group(0) if match else version_str
+                return tuple(map(int, numeric_part.split('.')))
             except ValueError:
                 # Fallback to string comparison if parsing fails
                 return version_str
