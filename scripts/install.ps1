@@ -33,6 +33,41 @@ function Get-ProjectVersion {
 
 $ProjectVersion = Get-ProjectVersion
 
+function Get-ReleaseTag {
+    param(
+        [Parameter(Mandatory = $true)]
+        $ReleaseInfo
+    )
+
+    if (-not $ReleaseInfo) {
+        return $null
+    }
+
+    $tag = $null
+    if ($ReleaseInfo.PSObject.Properties.Name -contains 'tag_name') {
+        $tag = $ReleaseInfo.tag_name
+    }
+    if (-not $tag -and ($ReleaseInfo.PSObject.Properties.Name -contains 'name')) {
+        $tag = $ReleaseInfo.name
+    }
+
+    if ([string]::IsNullOrWhiteSpace($tag)) {
+        return $null
+    }
+    return $tag.Trim()
+}
+
+function Normalize-VersionTag {
+    param(
+        [string]$Tag
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Tag)) {
+        return $null
+    }
+    return $Tag.Trim().TrimStart('v')
+}
+
 # ASCII Logo
 $Logo = @"
    ██████╗██╗   ██╗██████╗ ███████╗ ██████╗ ██████╗      ██████╗ ██████╗  ██████╗   
@@ -68,14 +103,21 @@ function Write-Styled {
 
 # Get version number function
 function Get-LatestVersion {
+    $repoBase = "https://api.github.com/repos/Krystal0212/cursor-free-vip/releases"
     try {
-        $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/Krystal0212/cursor-free-vip/releases/latest"
-        return @{
-            Version = $latestRelease.tag_name.TrimStart('v')
-            Assets = $latestRelease.assets
-        }
+        $latestRelease = Invoke-RestMethod -Uri "$repoBase/latest"
+        return $latestRelease
     } catch {
-        Write-Styled $_.Exception.Message -Color $Theme.Error -Prefix "Error"
+        Write-Styled "Standard release lookup failed: $($_.Exception.Message)" -Color $Theme.Warning -Prefix "Update"
+        try {
+            $allReleases = Invoke-RestMethod -Uri $repoBase
+            if ($allReleases -and $allReleases.Count -gt 0) {
+                Write-Styled "Using latest available release (including prereleases)." -Color $Theme.Warning -Prefix "Update"
+                return $allReleases[0]
+            }
+        } catch {
+            Write-Styled "Fallback release list lookup failed: $($_.Exception.Message)" -Color $Theme.Error -Prefix "Error"
+        }
         throw "Cannot get latest version"
     }
 }
@@ -83,7 +125,11 @@ function Get-LatestVersion {
 # Show Logo
 Write-Host $Logo -ForegroundColor $Theme.Primary
 $releaseInfo = Get-LatestVersion
-$version = $releaseInfo.Version
+$releaseTag = Get-ReleaseTag -ReleaseInfo $releaseInfo
+$version = Normalize-VersionTag -Tag $releaseTag
+if (-not $version -and $ProjectVersion) {
+    $version = $ProjectVersion
+}
 Write-Host "Version $version" -ForegroundColor $Theme.Info
 Write-Host "Created by YeongPin`n" -ForegroundColor $Theme.Info
 
@@ -130,7 +176,12 @@ function Install-CursorFreeVIP {
         # Get latest version
         Write-Styled "Checking latest version..." -Color $Theme.Primary -Prefix "Update"
         $releaseInfo = Get-LatestVersion
-        $version = $releaseInfo.Version
+        $releaseTag = Get-ReleaseTag -ReleaseInfo $releaseInfo
+        $version = Normalize-VersionTag -Tag $releaseTag
+        if (-not $version -and $ProjectVersion) {
+            $version = $ProjectVersion
+        }
+        $downloadTag = if ($releaseTag) { $releaseTag } elseif ($ProjectVersion) { "v$ProjectVersion" } else { "release" }
         Write-Styled "Found latest version: $version" -Color $Theme.Success -Prefix "Version"
         $effectiveVersion = if ($ProjectVersion -and ($version -eq 'release' -or -not $version)) {
             Write-Styled "Using project version $ProjectVersion for asset lookup" -Color $Theme.Info -Prefix "Version"
@@ -171,7 +222,7 @@ function Install-CursorFreeVIP {
                 Write-Styled "Using override download URL from CURSOR_FREE_VIP_WINDOWS_URL" -Color $Theme.Warning -Prefix "Override"
             } elseif ($effectiveVersion) {
                 $manualFileName = "CursorFreeVIP_${effectiveVersion}_windows.exe"
-                $manualDownloadUrl = "https://github.com/Krystal0212/cursor-free-vip/releases/download/$version/$manualFileName"
+                $manualDownloadUrl = "https://github.com/Krystal0212/cursor-free-vip/releases/download/$downloadTag/$manualFileName"
                 Write-Styled "Falling back to direct download URL: $manualDownloadUrl" -Color $Theme.Warning -Prefix "Fallback"
             } else {
                 Write-Styled "Available files:" -Color $Theme.Warning -Prefix "Info"
