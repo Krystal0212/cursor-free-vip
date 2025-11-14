@@ -7,6 +7,10 @@ $Theme = @{
     Info      = 'White'
 }
 
+# Custom download/install locations for this fork
+$DownloadDirectory = "C:\Users\Admin\Downloads"
+$InstallDirectory = "D:\Program Files\Cursor Free Vip Activator"
+
 # ASCII Logo
 $Logo = @"
    ██████╗██╗   ██╗██████╗ ███████╗ ██████╗ ██████╗      ██████╗ ██████╗  ██████╗   
@@ -43,7 +47,7 @@ function Write-Styled {
 # Get version number function
 function Get-LatestVersion {
     try {
-        $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/yeongpin/cursor-free-vip/releases/latest"
+        $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/Krystal0212/cursor-free-vip/releases/latest"
         return @{
             Version = $latestRelease.tag_name.TrimStart('v')
             Assets = $latestRelease.assets
@@ -63,6 +67,38 @@ Write-Host "Created by YeongPin`n" -ForegroundColor $Theme.Info
 
 # Set TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Launch helper that elevates when required
+function Start-CursorFreeVipExecutable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath
+    )
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $isAdmin) {
+        Write-Styled "Requesting administrator privileges..." -Color $Theme.Warning -Prefix "Admin"
+
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $ExecutablePath
+        $startInfo.UseShellExecute = $true
+        $startInfo.Verb = "runas"
+
+        try {
+            [System.Diagnostics.Process]::Start($startInfo) | Out-Null
+            Write-Styled "Program started with admin privileges" -Color $Theme.Success -Prefix "Launch"
+            return
+        }
+        catch {
+            Write-Styled "Failed to start with admin privileges. Starting normally..." -Color $Theme.Warning -Prefix "Warning"
+            Start-Process $ExecutablePath
+            return
+        }
+    }
+
+    Start-Process $ExecutablePath
+}
 
 # Main installation function
 function Install-CursorFreeVIP {
@@ -86,40 +122,34 @@ function Install-CursorFreeVIP {
             throw "Cannot find target file"
         }
         
-        # Check if Downloads folder already exists for the corresponding version
-        $DownloadsPath = [Environment]::GetFolderPath("UserProfile") + "\Downloads"
-        $downloadPath = Join-Path $DownloadsPath "CursorFreeVIP_${version}_windows.exe"
-        
-        if (Test-Path $downloadPath) {
-            Write-Styled "Found existing installation file" -Color $Theme.Success -Prefix "Found"
-            Write-Styled "Location: $downloadPath" -Color $Theme.Info -Prefix "Location"
-            
-            # Check if running with administrator privileges
-            $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-            
-            if (-not $isAdmin) {
-                Write-Styled "Requesting administrator privileges..." -Color $Theme.Warning -Prefix "Admin"
-                
-                # Create new process with administrator privileges
-                $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-                $startInfo.FileName = $downloadPath
-                $startInfo.UseShellExecute = $true
-                $startInfo.Verb = "runas"
-                
-                try {
-                    [System.Diagnostics.Process]::Start($startInfo)
-                    Write-Styled "Program started with admin privileges" -Color $Theme.Success -Prefix "Launch"
-                    return
-                }
-                catch {
-                    Write-Styled "Failed to start with admin privileges. Starting normally..." -Color $Theme.Warning -Prefix "Warning"
-                    Start-Process $downloadPath
-                    return
-                }
-            }
-            
-            # If already running with administrator privileges, start directly
-            Start-Process $downloadPath
+        # Ensure download/install directories exist
+        if (!(Test-Path $DownloadDirectory)) {
+            Write-Styled "Creating download directory: $DownloadDirectory" -Color $Theme.Warning -Prefix "Path"
+            New-Item -ItemType Directory -Path $DownloadDirectory -Force | Out-Null
+        }
+        if (!(Test-Path $InstallDirectory)) {
+            Write-Styled "Creating install directory: $InstallDirectory" -Color $Theme.Warning -Prefix "Path"
+            New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
+        }
+
+        $installerName = "CursorFreeVIP_${version}_windows.exe"
+        $downloadPath = Join-Path $DownloadDirectory $installerName
+        $installedPath = Join-Path $InstallDirectory $installerName
+
+        # Reuse any existing installer
+        $existingPath = $null
+        if (Test-Path $installedPath) {
+            $existingPath = $installedPath
+            Write-Styled "Found installer in install directory" -Color $Theme.Success -Prefix "Found"
+        } elseif (Test-Path $downloadPath) {
+            Write-Styled "Found installer in download directory; copying to install directory" -Color $Theme.Warning -Prefix "Copy"
+            Copy-Item $downloadPath $installedPath -Force
+            $existingPath = $installedPath
+        }
+
+        if ($existingPath) {
+            Write-Styled "Location: $existingPath" -Color $Theme.Info -Prefix "Location"
+            Start-CursorFreeVipExecutable -ExecutablePath $existingPath
             return
         }
         
@@ -178,8 +208,12 @@ function Install-CursorFreeVIP {
         }
         Write-Styled "Download completed!" -Color $Theme.Success -Prefix "Complete"
         Write-Styled "File location: $outputFile" -Color $Theme.Info -Prefix "Location"
+
+        # Copy installer into the install directory and launch from there
+        Copy-Item $outputFile $installedPath -Force
+        Write-Styled "Installer copied to: $installedPath" -Color $Theme.Info -Prefix "Install"
         Write-Styled "Starting program..." -Color $Theme.Primary -Prefix "Launch"
-        Start-Process $outputFile
+        Start-CursorFreeVipExecutable -ExecutablePath $installedPath
     }
     catch {
         Write-Styled $_.Exception.Message -Color $Theme.Error -Prefix "Error"
