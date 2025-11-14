@@ -11,6 +11,28 @@ $Theme = @{
 $DownloadDirectory = "C:\Users\Admin\Downloads"
 $InstallDirectory = "D:\Program Files\Cursor Free Vip Activator"
 
+# Project metadata (used when release tags are non-version strings such as "release")
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$EnvFilePath = Join-Path $ProjectRoot ".env"
+
+function Get-ProjectVersion {
+    if (-not (Test-Path $EnvFilePath)) {
+        return $null
+    }
+
+    foreach ($line in Get-Content $EnvFilePath) {
+        if ($line -match '^\s*VERSION\s*=\s*(.+)\s*$') {
+            $value = $Matches[1].Trim('"').Trim()
+            if ($value) {
+                return $value
+            }
+        }
+    }
+    return $null
+}
+
+$ProjectVersion = Get-ProjectVersion
+
 # ASCII Logo
 $Logo = @"
    ██████╗██╗   ██╗██████╗ ███████╗ ██████╗ ██████╗      ██████╗ ██████╗  ██████╗   
@@ -110,16 +132,56 @@ function Install-CursorFreeVIP {
         $releaseInfo = Get-LatestVersion
         $version = $releaseInfo.Version
         Write-Styled "Found latest version: $version" -Color $Theme.Success -Prefix "Version"
+        $effectiveVersion = if ($ProjectVersion -and ($version -eq 'release' -or -not $version)) {
+            Write-Styled "Using project version $ProjectVersion for asset lookup" -Color $Theme.Info -Prefix "Version"
+            $ProjectVersion
+        } else {
+            $version
+        }
         
         # Find corresponding resources
-        $asset = $releaseInfo.Assets | Where-Object { $_.name -eq "CursorFreeVIP_${version}_windows.exe" }
-        if (!$asset) {
-            Write-Styled "File not found: CursorFreeVIP_${version}_windows.exe" -Color $Theme.Error -Prefix "Error"
-            Write-Styled "Available files:" -Color $Theme.Warning -Prefix "Info"
-            $releaseInfo.Assets | ForEach-Object {
-                Write-Styled "- $($_.name)" -Color $Theme.Info
+        $expectedNames = @()
+        if ($effectiveVersion) {
+            $expectedNames += "CursorFreeVIP_${effectiveVersion}_windows.exe"
+        }
+        if ($version -and $version -ne $effectiveVersion) {
+            $expectedNames += "CursorFreeVIP_${version}_windows.exe"
+        }
+        if (-not $expectedNames) {
+            $expectedNames += "CursorFreeVIP_windows.exe"
+        }
+
+        $asset = $null
+        foreach ($name in $expectedNames) {
+            $asset = $releaseInfo.Assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+            if ($asset) {
+                break
             }
-            throw "Cannot find target file"
+        }
+        if (-not $asset) {
+            $asset = $releaseInfo.Assets | Where-Object { $_.name -like "*windows*.exe" } | Select-Object -First 1
+        }
+        $manualDownloadUrl = $null
+        $manualFileName = $null
+        if (-not $asset) {
+            Write-Styled "Matching asset not found in release payload" -Color $Theme.Warning -Prefix "Assets"
+            if ($env:CURSOR_FREE_VIP_WINDOWS_URL) {
+                $manualDownloadUrl = $env:CURSOR_FREE_VIP_WINDOWS_URL
+                $manualFileName = Split-Path $manualDownloadUrl -Leaf
+                Write-Styled "Using override download URL from CURSOR_FREE_VIP_WINDOWS_URL" -Color $Theme.Warning -Prefix "Override"
+            } elseif ($effectiveVersion) {
+                $manualFileName = "CursorFreeVIP_${effectiveVersion}_windows.exe"
+                $manualDownloadUrl = "https://github.com/Krystal0212/cursor-free-vip/releases/download/$version/$manualFileName"
+                Write-Styled "Falling back to direct download URL: $manualDownloadUrl" -Color $Theme.Warning -Prefix "Fallback"
+            } else {
+                Write-Styled "Available files:" -Color $Theme.Warning -Prefix "Info"
+                $releaseInfo.Assets | ForEach-Object {
+                    Write-Styled "- $($_.name)" -Color $Theme.Info
+                }
+                throw "Cannot find target file"
+            }
+        } else {
+            $manualFileName = $asset.name
         }
         
         # Ensure download/install directories exist
@@ -132,7 +194,7 @@ function Install-CursorFreeVIP {
             New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
         }
 
-        $installerName = "CursorFreeVIP_${version}_windows.exe"
+        $installerName = $manualFileName
         $downloadPath = Join-Path $DownloadDirectory $installerName
         $installedPath = Join-Path $InstallDirectory $installerName
 
@@ -156,7 +218,7 @@ function Install-CursorFreeVIP {
         Write-Styled "No existing installation file found, starting download..." -Color $Theme.Primary -Prefix "Download"
 
         # Use HttpWebRequest for chunked download with real-time progress bar
-        $url = $asset.browser_download_url
+        $url = if ($asset) { $asset.browser_download_url } else { $manualDownloadUrl }
         $outputFile = $downloadPath
         Write-Styled "Downloading from: $url" -Color $Theme.Info -Prefix "URL"
         Write-Styled "Saving to: $outputFile" -Color $Theme.Info -Prefix "Path"
