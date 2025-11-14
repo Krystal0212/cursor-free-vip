@@ -10,6 +10,11 @@ $Theme = @{
 # Custom download/install locations for this fork
 $DownloadDirectory = "C:\Users\Admin\Downloads"
 $InstallDirectory = "D:\Program Files\Cursor Free Vip Activator"
+$PreferredAssetName = if ($env:CURSOR_FREE_VIP_ASSET_NAME -and -not [string]::IsNullOrWhiteSpace($env:CURSOR_FREE_VIP_ASSET_NAME)) {
+    $env:CURSOR_FREE_VIP_ASSET_NAME.Trim()
+} else {
+    "CursorVipActivator.exe"
+}
 
 # Project metadata (used when release tags are non-version strings such as "release")
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -192,6 +197,9 @@ function Install-CursorFreeVIP {
         
         # Find corresponding resources
         $expectedNames = @()
+        if ($PreferredAssetName) {
+            $expectedNames += $PreferredAssetName
+        }
         if ($effectiveVersion) {
             $expectedNames += "CursorFreeVIP_${effectiveVersion}_windows.exe"
         }
@@ -220,6 +228,10 @@ function Install-CursorFreeVIP {
                 $manualDownloadUrl = $env:CURSOR_FREE_VIP_WINDOWS_URL
                 $manualFileName = Split-Path $manualDownloadUrl -Leaf
                 Write-Styled "Using override download URL from CURSOR_FREE_VIP_WINDOWS_URL" -Color $Theme.Warning -Prefix "Override"
+            } elseif ($PreferredAssetName) {
+                $manualFileName = $PreferredAssetName
+                $manualDownloadUrl = "https://github.com/Krystal0212/cursor-free-vip/releases/download/$downloadTag/$manualFileName"
+                Write-Styled "Falling back to preferred asset name: $manualDownloadUrl" -Color $Theme.Warning -Prefix "Fallback"
             } elseif ($effectiveVersion) {
                 $manualFileName = "CursorFreeVIP_${effectiveVersion}_windows.exe"
                 $manualDownloadUrl = "https://github.com/Krystal0212/cursor-free-vip/releases/download/$downloadTag/$manualFileName"
